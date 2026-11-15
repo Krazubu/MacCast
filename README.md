@@ -41,6 +41,12 @@ permission again.
 Click the TV icon in the menu bar, then click a device to start mirroring. Click it
 again, or choose *Arrêter la diffusion*, to stop. The menu also lets you pick:
 
+- **Mode**: *Recopie de l'écran* shows a Mac display on the TV. *Écran étendu* turns the
+  TV into a second screen instead. The app creates a 1920x1080 HiDPI virtual display
+  (1280x720 in 720p) to the right of the main display, and streams it. You can drag
+  windows onto it, or move it in System Settings › Displays. When the cast stops, it
+  disappears and macOS moves its windows back. *Écran* and *Optimiser pour* only
+  apply to mirroring, so they are hidden in this mode.
 - **Écran**: which display to mirror, when there are several.
 - **Optimiser pour**: *L'écran du Mac* leaves the Mac display alone, and the TV shows
   it with black bars if the shapes differ. *La diffusion vidéo HD* gives the desktop,
@@ -81,6 +87,6 @@ The same binary can be used for testing:
 | `--seconds <n>` | stops after n seconds (default 30) |
 | `--list` | lists the devices found |
 | `--modes` | shows what *Optimiser pour la diffusion vidéo HD* would do on each display, without changing anything |
-| `--optimize-test [s]` | applies *Optimiser pour la diffusion vidéo HD* to the main display for s seconds (default 5), then restores it |
+| `--optimize-test [s] [--extend]` | applies *Optimiser pour la diffusion vidéo HD* to the main display (or, with `--extend`, creates the extended screen) for s seconds (default 5), then restores it |
 
 Every 2 seconds it logs how many frames were sent and acknowledged by the receiver.

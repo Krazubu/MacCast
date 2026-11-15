@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         defaults.register(defaults: ["audio": true, "maxHeight": 1080, "delayMs": 400, "displayID": 0,
-                                     "optimizeForDestination": false])
+                                     "optimizeForDestination": false, "extend": false])
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         menu.delegate = self
@@ -58,33 +58,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
-        // Displays
-        let displays = physicalDisplays
-        if displays.count > 1 {
-            let sub = NSMenu()
-            let chosen = currentDisplayID
-            for id in displays {
-                let i = item(displayName(id), #selector(setDisplay(_:)))
-                i.tag = Int(id)
-                i.state = id == chosen ? .on : .off
-                sub.addItem(i)
-            }
-            menu.addItem(submenu("Écran", sub))
-        }
-
-        let optimize = NSMenu()
+        let extend = defaults.bool(forKey: "extend")
         let (dw, dh) = destinationResolution(maxHeight: defaults.integer(forKey: "maxHeight"))
-        let toDestination = defaults.bool(forKey: "optimizeForDestination")
-        for (dest, title) in [(false, "L'écran du Mac"), (true, "La diffusion vidéo HD (\(dw)x\(dh))")] {
-            let i = item(title, #selector(setOptimize(_:)))
-            i.tag = dest ? 1 : 0
-            i.state = toDestination == dest ? .on : .off
-            if dest {
-                i.toolTip = "Pendant la diffusion, l'écran du Mac passe à la résolution de l'image envoyée, ou à la plus grande résolution inférieure au même format."
+        let mode = NSMenu()
+        for (ext, title) in [(false, "Recopie de l'écran"), (true, "Écran étendu (\(dw)x\(dh))")] {
+            let i = item(title, #selector(setExtend(_:)))
+            i.tag = ext ? 1 : 0
+            i.state = extend == ext ? .on : .off
+            if ext {
+                i.toolTip = "Le téléviseur devient un second écran, à droite de l'écran principal. Glisse-y des fenêtres pendant la diffusion."
             }
-            optimize.addItem(i)
+            mode.addItem(i)
         }
-        menu.addItem(submenu("Optimiser pour", optimize))
+        menu.addItem(submenu("Mode", mode))
+
+        // Which display to mirror and how: irrelevant for an extended desktop.
+        if !extend {
+            let displays = physicalDisplays
+            if displays.count > 1 {
+                let sub = NSMenu()
+                let chosen = currentDisplayID
+                for id in displays {
+                    let i = item(displayName(id), #selector(setDisplay(_:)))
+                    i.tag = Int(id)
+                    i.state = id == chosen ? .on : .off
+                    sub.addItem(i)
+                }
+                menu.addItem(submenu("Écran", sub))
+            }
+
+            let optimize = NSMenu()
+            let toDestination = defaults.bool(forKey: "optimizeForDestination")
+            for (dest, title) in [(false, "L'écran du Mac"), (true, "La diffusion vidéo HD (\(dw)x\(dh))")] {
+                let i = item(title, #selector(setOptimize(_:)))
+                i.tag = dest ? 1 : 0
+                i.state = toDestination == dest ? .on : .off
+                if dest {
+                    i.toolTip = "Pendant la diffusion, le bureau prend le format de l'image envoyée (16:9) : l'écran du Mac recopie un écran virtuel de cette taille."
+                }
+                optimize.addItem(i)
+            }
+            menu.addItem(submenu("Optimiser pour", optimize))
+        }
 
         let quality = NSMenu()
         for (h, title) in [(1080, "1080p"), (720, "720p (plus léger)")] {
@@ -123,7 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .connecting?: return "Connexion à \(name)…"
         case .launching?: return "Ouverture de la recopie sur \(name)…"
         case .negotiating?: return "Négociation avec \(name)…"
-        case .streaming?: return "Diffusion sur \(name)"
+        case .streaming?:
+            return defaults.bool(forKey: "extend") ? "Écran étendu sur \(name)" : "Diffusion sur \(name)"
         case .ended?, nil:
             if let e = lastError { return "Erreur : \(e)" }
             return devices.isEmpty ? "Aucun appareil Cast trouvé" : "Inactif"
@@ -159,6 +175,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func setOptimize(_ sender: NSMenuItem) {
         defaults.set(sender.tag == 1, forKey: "optimizeForDestination")
         if sender.tag == 0 { displayMode.restore() }
+        restartIfCasting()
+    }
+
+    @objc private func setExtend(_ sender: NSMenuItem) {
+        defaults.set(sender.tag == 1, forKey: "extend")
         restartIfCasting()
     }
 
@@ -246,13 +267,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateIcon()
 
         // Done before the session is created: the stream size follows the display's new shape.
-        guard defaults.bool(forKey: "optimizeForDestination") else {
+        let target = destinationResolution(maxHeight: options.maxHeight)
+        let extend = defaults.bool(forKey: "extend")
+        guard extend || defaults.bool(forKey: "optimizeForDestination") else {
             displayMode.restore()
             launch(device, options)
             return
         }
-        let target = destinationResolution(maxHeight: options.maxHeight)
-        displayMode.apply(display: options.displayID, target: target) { [weak self] result in
+        let ready: (Result<CGDirectDisplayID, Error>) -> Void = { [weak self] result in
             guard let self, self.startToken == token else { return }
             switch result {
             case .success(let id):
@@ -260,10 +282,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .failure(let error):
                 log("optimize for HD stream failed: \(error.localizedDescription)")
                 self.displayMode.restore()
-                self.alert("Écran virtuel 16:9 indisponible : \(error.localizedDescription).\n\nLa diffusion continue avec l'écran du Mac tel quel.")
+                self.alert("Écran virtuel 16:9 indisponible : \(error.localizedDescription).\n\nLa diffusion continue avec la recopie de l'écran du Mac tel quel.")
                 guard self.startToken == token else { return }
             }
             self.launch(device, options)
+        }
+        if extend {
+            displayMode.extend(target: target, completion: ready)
+        } else {
+            displayMode.apply(display: options.displayID, target: target, completion: ready)
         }
     }
 

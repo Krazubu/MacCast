@@ -37,13 +37,27 @@ enum DisplayModeError: LocalizedError {
     }
 }
 
+/// The main display, or the built-in one when the main display is `excluded`.
+func mainPhysicalDisplay(excluding excluded: CGDirectDisplayID) -> CGDirectDisplayID {
+    let main = CGMainDisplayID()
+    if main != excluded { return main }
+    var count: UInt32 = 0
+    CGGetOnlineDisplayList(0, nil, &count)
+    var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+    CGGetOnlineDisplayList(count, &ids, &count)
+    let others = ids.prefix(Int(count)).filter { $0 != excluded }
+    return others.first(where: { CGDisplayIsBuiltin($0) != 0 }) ?? others.first ?? main
+}
+
 /// A 16:9 screen that exists only in software. The Mac's display mirrors it,
 /// so the desktop takes its shape (with black bars on the physical panel).
 final class VirtualDisplay {
     private let display: CGVirtualDisplay
     var displayID: CGDirectDisplayID { display.displayID }
 
-    init?(width: Int, height: Int) {
+    /// `extended` gives it another serial number: macOS remembers the arrangement
+    /// (mirrored or not) per display identity.
+    init?(width: Int, height: Int, extended: Bool = false) {
         let d = CGVirtualDisplayDescriptor()
         d.queue = DispatchQueue.main
         d.name = "Cast Mirror \(width)x\(height)"
@@ -52,7 +66,7 @@ final class VirtualDisplay {
         d.sizeInMillimeters = CGSize(width: Double(width) * 0.28, height: Double(height) * 0.28)
         d.vendorID = 0xCA57
         d.productID = UInt32(height)
-        d.serialNum = 1
+        d.serialNum = extended ? 2 : 1
         d.terminationHandler = { _, _ in log("virtual display terminated") }
         display = CGVirtualDisplay(descriptor: d)
         guard display.displayID != 0 else { log("virtual display: no display ID"); return nil }
@@ -67,20 +81,23 @@ final class VirtualDisplay {
     }
 }
 
-/// Puts the Mac display in the shape of the stream, and back.
+/// Manages the 16:9 virtual display used for casting, and puts everything back.
 ///
-/// A display already in that aspect ratio is left alone. Any other gets a virtual
-/// display of the stream's size, which it mirrors; the stream is then captured from
-/// the virtual display, so the picture always fills the TV at full resolution.
+/// - Mirroring ("Optimiser pour la diffusion vidéo HD"): a display already in the stream's
+///   aspect ratio is left alone. Any other mirrors a virtual display of the stream's size,
+///   which is what gets captured, so the picture always fills the TV at full resolution.
+/// - Extended desktop: the virtual display is a second screen placed right of the main one,
+///   and the TV shows it.
 final class DisplayOptimizer {
-    private var virtual: (display: VirtualDisplay, mirrored: CGDirectDisplayID, target: (Int, Int))?
-    /// Virtual display waiting for macOS to accept the mirroring.
+    /// `mirrored` is the physical display mirroring it, nil for an extended desktop.
+    private var virtual: (display: VirtualDisplay, mirrored: CGDirectDisplayID?, target: (Int, Int))?
+    /// Virtual display waiting for macOS to accept its configuration.
     private var pending: VirtualDisplay?
     private var generation = 0
 
     var virtualDisplayID: CGDirectDisplayID? { virtual?.display.displayID ?? pending?.displayID }
 
-    /// Calls `completion` on the main queue with the display to capture. Call from the main thread.
+    /// Mirroring. Calls `completion` on the main queue with the display to capture.
     func apply(display: CGDirectDisplayID, target: (Int, Int),
                completion: @escaping (Result<CGDirectDisplayID, Error>) -> Void) {
         if let v = virtual, v.mirrored == display, v.target == target {
@@ -93,40 +110,82 @@ final class DisplayOptimizer {
             completion(.success(display))
             return
         }
+        create(target: target, mirrored: display, completion: completion) { id in
+            try self.configure { CGConfigureDisplayMirrorOfDisplay($0, display, id) }
+        }
+    }
 
-        guard let v = VirtualDisplay(width: target.0, height: target.1) else {
+    /// Extended desktop. Calls `completion` on the main queue with the display to capture.
+    func extend(target: (Int, Int), completion: @escaping (Result<CGDirectDisplayID, Error>) -> Void) {
+        if let v = virtual, v.mirrored == nil, v.target == target {
+            completion(.success(v.display.displayID))
+            return
+        }
+        restore()
+        create(target: target, mirrored: nil, completion: completion) { id in
+            // Right of the main display, tops aligned (macOS moves it if that overlaps another screen).
+            let physical = mainPhysicalDisplay(excluding: id)
+            let bounds = CGDisplayBounds(physical)
+            try self.configure { config in
+                // macOS may put a new display in a mirror set on its own: take it out first.
+                var err = CGConfigureDisplayMirrorOfDisplay(config, id, kCGNullDirectDisplay)
+                if err == .success, CGDisplayMirrorsDisplay(physical) == id {
+                    err = CGConfigureDisplayMirrorOfDisplay(config, physical, kCGNullDirectDisplay)
+                }
+                guard err == .success else { return err }
+                return CGConfigureDisplayOrigin(config, id, Int32(bounds.maxX), Int32(bounds.minY))
+            }
+            guard CGDisplayIsInMirrorSet(id) == 0 else { throw DisplayModeError.configurationFailed(.failure) }
+        }
+    }
+
+    func restore() {
+        generation += 1
+        pending = nil
+        guard let v = virtual else { return }
+        virtual = nil
+        if let mirrored = v.mirrored {
+            do {
+                try configure { CGConfigureDisplayMirrorOfDisplay($0, mirrored, kCGNullDirectDisplay) }
+            } catch {
+                log("unmirror failed: \(error.localizedDescription)")
+            }
+        }
+        log("virtual display \(v.display.displayID) removed")
+        _ = v.display  // released here, which removes it from the system
+    }
+
+    /// Creates the virtual display, then runs `configure` until macOS accepts it.
+    ///
+    /// A display created a moment ago is not always ready to be configured
+    /// (CGCompleteDisplayConfiguration fails with 1001 in the app). Let the run loop
+    /// process its arrival and try again for up to 3 seconds.
+    private func create(target: (Int, Int), mirrored: CGDirectDisplayID?,
+                        completion: @escaping (Result<CGDirectDisplayID, Error>) -> Void,
+                        configure step: @escaping (CGDirectDisplayID) throws -> Void) {
+        guard let v = VirtualDisplay(width: target.0, height: target.1, extended: mirrored == nil) else {
             completion(.failure(DisplayModeError.virtualDisplayFailed))
             return
         }
         let id = v.displayID
+        let what = mirrored.map { "display \($0): mirroring virtual display \(id)" } ?? "extended desktop on virtual display \(id)"
         pending = v
         let token = generation
 
-        // A display created a moment ago is not always ready to be part of a mirror set
-        // (CGCompleteDisplayConfiguration fails with 1001 in the app). Let the run loop
-        // process its arrival and try again for up to 3 seconds.
         func attempt(_ n: Int) {
             guard token == generation, let v = pending else { return }  // restore() was called meanwhile
             do {
-                if n == 1 {
-                    // Prefer the HiDPI mode (sharper on the Mac's own panel).
-                    let modes = (CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary)
-                        as? [CGDisplayMode]) ?? []
-                    if let mode = modes.filter({ $0.width == target.0 && $0.height == target.1 })
-                        .max(by: { $0.pixelWidth < $1.pixelWidth }) {
-                        try? setMode(id, mode)
-                    }
-                }
-                try configure { CGConfigureDisplayMirrorOfDisplay($0, display, id) }
+                if n == 1 { selectHiDPIMode(id, target) }
+                try step(id)
                 pending = nil
-                virtual = (v, display, target)
-                log("display \(display): mirroring virtual display \(id) \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?") (attempt \(n))")
+                virtual = (v, mirrored, target)
+                log("\(what) \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?") (attempt \(n))")
                 completion(.success(id))
             } catch {
                 if n < 15 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { attempt(n + 1) }
                 } else {
-                    log("display \(display): mirroring virtual display \(id) failed after \(n) attempts: \(error.localizedDescription)")
+                    log("\(what) failed after \(n) attempts: \(error.localizedDescription)")
                     pending = nil
                     completion(.failure(error))
                 }
@@ -135,18 +194,14 @@ final class DisplayOptimizer {
         DispatchQueue.main.async { attempt(1) }
     }
 
-    func restore() {
-        generation += 1
-        pending = nil
-        guard let v = virtual else { return }
-        virtual = nil
-        do {
-            try configure { CGConfigureDisplayMirrorOfDisplay($0, v.mirrored, kCGNullDirectDisplay) }
-        } catch {
-            log("unmirror failed: \(error.localizedDescription)")
+    /// Prefers the HiDPI mode: sharp text, on the TV and on the Mac's own panel.
+    private func selectHiDPIMode(_ id: CGDirectDisplayID, _ target: (Int, Int)) {
+        let modes = (CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary)
+            as? [CGDisplayMode]) ?? []
+        if let mode = modes.filter({ $0.width == target.0 && $0.height == target.1 })
+            .max(by: { $0.pixelWidth < $1.pixelWidth }) {
+            try? setMode(id, mode)
         }
-        log("display \(v.mirrored): virtual display removed")
-        _ = v.display  // released here, which removes it from the system
     }
 
     private func setMode(_ display: CGDirectDisplayID, _ mode: CGDisplayMode) throws {

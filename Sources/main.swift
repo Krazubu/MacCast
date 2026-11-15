@@ -72,7 +72,8 @@ if arguments.contains("--modes") {
     exit(0)
 }
 if let i = arguments.firstIndex(of: "--optimize-test") {
-    // Applies "Optimiser pour la diffusion vidéo HD" for a few seconds, then restores.
+    // Applies "Optimiser pour la diffusion vidéo HD" (or, with --extend, the extended
+    // desktop) for a few seconds, then restores.
     // Runs inside a real NSApplication run loop, like the menu bar app.
     let seconds = (i + 1 < arguments.count ? Double(arguments[i + 1]) : nil) ?? 5
     let app = NSApplication.shared
@@ -80,10 +81,11 @@ if let i = arguments.firstIndex(of: "--optimize-test") {
     let optimizer = DisplayOptimizer()
     let main = CGMainDisplayID()
     DispatchQueue.main.async {
-        optimizer.apply(display: main, target: destinationResolution(maxHeight: 1080)) { result in
+        let target = destinationResolution(maxHeight: 1080)
+        let done: (Result<CGDirectDisplayID, Error>) -> Void = { result in
             switch result {
             case .success(let id):
-                print("capture display \(id): bounds \(CGDisplayBounds(id).size), mode \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?"), main is mirror: \(CGDisplayIsInMirrorSet(main) != 0)")
+                print("capture display \(id): bounds \(CGDisplayBounds(id)), mode \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?"), main is mirror: \(CGDisplayIsInMirrorSet(main) != 0)")
             case .failure(let error):
                 print("failed: \(error.localizedDescription)")
             }
@@ -92,6 +94,11 @@ if let i = arguments.firstIndex(of: "--optimize-test") {
                 print("restored: \(CGDisplayCopyDisplayMode(main).map(describe) ?? "?"), main is mirror: \(CGDisplayIsInMirrorSet(main) != 0)")
                 exit(0)
             }
+        }
+        if arguments.contains("--extend") {
+            optimizer.extend(target: target, completion: done)
+        } else {
+            optimizer.apply(display: main, target: target, completion: done)
         }
     }
     app.run()
