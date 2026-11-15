@@ -66,7 +66,7 @@ if arguments.contains("--modes") {
         print("display \(id): current \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?")")
         for h in [1080, 720] {
             let t = destinationResolution(maxHeight: h)
-            print("  for \(t.0)x\(t.1): \(bestMode(for: id, target: t).map(describe) ?? "no mode with this aspect ratio")")
+            print("  for \(t.0)x\(t.1): \(hasAspectRatio(id, of: t) ? "already this shape, unchanged" : "mirrors a \(t.0)x\(t.1) virtual display")")
         }
     }
     exit(0)

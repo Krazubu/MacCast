@@ -15,25 +15,12 @@ func describe(_ m: CGDisplayMode) -> String {
     return "\(m.width)x\(m.height)\(hidpi) @\(Int(m.refreshRate.rounded()))Hz"
 }
 
-/// Best mode for the target: same aspect ratio, not larger than the target,
-/// largest first; ties prefer the current refresh rate, then HiDPI.
-func bestMode(for display: CGDirectDisplayID, target: (Int, Int)) -> CGDisplayMode? {
-    let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
-    guard let all = CGDisplayCopyAllDisplayModes(display, options) as? [CGDisplayMode] else { return nil }
-    let (tw, th) = target
-    let currentRate = CGDisplayCopyDisplayMode(display)?.refreshRate ?? 0
-    let candidates = all.filter { m in
-        guard m.isUsableForDesktopGUI(), m.width <= tw, m.height <= th else { return false }
-        // Same aspect ratio within 1% (e.g. 1366x768 counts as 16:9).
-        let a = Double(m.width) / Double(m.height), t = Double(tw) / Double(th)
-        return abs(a - t) / t < 0.01
-    }
-    return candidates.max { a, b in
-        if a.width != b.width { return a.width < b.width }
-        let ar = abs(a.refreshRate - currentRate) < 0.5, br = abs(b.refreshRate - currentRate) < 0.5
-        if ar != br { return br }
-        return (a.pixelWidth > a.width ? 1 : 0) < (b.pixelWidth > b.width ? 1 : 0)
-    }
+/// True when the display's current mode already has the target's aspect ratio
+/// (within 1%, so 1366x768 counts as 16:9).
+func hasAspectRatio(_ display: CGDirectDisplayID, of target: (Int, Int)) -> Bool {
+    guard let m = CGDisplayCopyDisplayMode(display), m.height > 0 else { return false }
+    let a = Double(m.width) / Double(m.height), t = Double(target.0) / Double(target.1)
+    return abs(a - t) / t < 0.01
 }
 
 enum DisplayModeError: LocalizedError {
@@ -80,13 +67,12 @@ final class VirtualDisplay {
     }
 }
 
-/// Puts the Mac display in the shape of the destination, and back.
+/// Puts the Mac display in the shape of the stream, and back.
 ///
-/// 1. A real mode with the target size, or the largest smaller one with the same aspect ratio.
-/// 2. Otherwise (e.g. 16:10 MacBook panels), a virtual display of the target size that the
-///    physical display mirrors. The stream is then captured from the virtual display.
+/// A display already in that aspect ratio is left alone. Any other gets a virtual
+/// display of the stream's size, which it mirrors; the stream is then captured from
+/// the virtual display, so the picture always fills the TV at full resolution.
 final class DisplayOptimizer {
-    private var originalMode: (CGDirectDisplayID, CGDisplayMode)?
     private var virtual: (display: VirtualDisplay, mirrored: CGDirectDisplayID, target: (Int, Int))?
 
     var virtualDisplayID: CGDirectDisplayID? { virtual?.display.displayID }
@@ -97,20 +83,11 @@ final class DisplayOptimizer {
             if v.mirrored == display, v.target == target { return v.display.displayID }
             restore()
         }
-        if let (id, _) = originalMode, id != display { restore() }
-
-        if let mode = bestMode(for: display, target: target) {
-            let current = CGDisplayCopyDisplayMode(display)
-            if current?.ioDisplayModeID != mode.ioDisplayModeID {
-                if originalMode == nil, let current { originalMode = (display, current) }
-                try setMode(display, mode)
-                log("display \(display): \(current.map(describe) ?? "?") -> \(describe(mode))")
-            }
+        if hasAspectRatio(display, of: target) {
+            log("display \(display): already \(CGDisplayCopyDisplayMode(display).map(describe) ?? "?"), unchanged")
             return display
         }
 
-        // No mode of that shape: go through a virtual display.
-        restoreMode()
         guard let v = VirtualDisplay(width: target.0, height: target.1) else {
             throw DisplayModeError.virtualDisplayFailed
         }
@@ -122,39 +99,22 @@ final class DisplayOptimizer {
             .max(by: { $0.pixelWidth < $1.pixelWidth }) {
             try? setMode(id, mode)
         }
-        do {
-            try configure { CGConfigureDisplayMirrorOfDisplay($0, display, id) }
-        } catch {
-            throw error
-        }
+        try configure { CGConfigureDisplayMirrorOfDisplay($0, display, id) }
         virtual = (v, display, target)
         log("display \(display): mirroring virtual display \(id) \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?")")
         return id
     }
 
     func restore() {
-        if let v = virtual {
-            virtual = nil
-            do {
-                try configure { CGConfigureDisplayMirrorOfDisplay($0, v.mirrored, kCGNullDirectDisplay) }
-            } catch {
-                log("unmirror failed: \(error.localizedDescription)")
-            }
-            log("display \(v.mirrored): virtual display removed")
-            _ = v.display  // released here, which removes it from the system
-        }
-        restoreMode()
-    }
-
-    private func restoreMode() {
-        guard let (id, mode) = originalMode else { return }
-        originalMode = nil
+        guard let v = virtual else { return }
+        virtual = nil
         do {
-            try setMode(id, mode)
-            log("display \(id): restored \(describe(mode))")
+            try configure { CGConfigureDisplayMirrorOfDisplay($0, v.mirrored, kCGNullDirectDisplay) }
         } catch {
-            log("display \(id): restore failed: \(error.localizedDescription)")
+            log("unmirror failed: \(error.localizedDescription)")
         }
+        log("display \(v.mirrored): virtual display removed")
+        _ = v.display  // released here, which removes it from the system
     }
 
     private func setMode(_ display: CGDirectDisplayID, _ mode: CGDisplayMode) throws {
