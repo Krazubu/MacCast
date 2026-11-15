@@ -12,6 +12,7 @@ rm -rf "$app"
 mkdir -p "$contents/MacOS" "$contents/Resources"
 
 swiftc -O -swift-version 5 -target "$(uname -m)-apple-macos14" \
+  -import-objc-header Sources/CGVirtualDisplay.h \
   -o "$contents/MacOS/CastMirror" Sources/*.swift
 
 cat > "$contents/Info.plist" <<EOF

@@ -71,6 +71,25 @@ if arguments.contains("--modes") {
     }
     exit(0)
 }
+if let i = arguments.firstIndex(of: "--optimize-test") {
+    // Applies "Optimiser pour l'écran de destination" for a few seconds, then restores.
+    _ = NSApplication.shared
+    let seconds = (i + 1 < arguments.count ? Double(arguments[i + 1]) : nil) ?? 5
+    let optimizer = DisplayOptimizer()
+    let main = CGMainDisplayID()
+    do {
+        let id = try optimizer.apply(display: main, target: destinationResolution(maxHeight: 1080))
+        print("capture display \(id): bounds \(CGDisplayBounds(id).size), mode \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?"), main is mirror: \(CGDisplayIsInMirrorSet(main) != 0)")
+    } catch {
+        print("failed: \(error.localizedDescription)")
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+        optimizer.restore()
+        print("restored: \(CGDisplayCopyDisplayMode(main).map(describe) ?? "?"), main is mirror: \(CGDisplayIsInMirrorSet(main) != 0)")
+        exit(0)
+    }
+    dispatchMain()
+}
 if arguments.contains("--cast") || arguments.contains("--list") {
     _ = NSApplication.shared  // window server connection for ScreenCaptureKit
     CLI.run(arguments)

@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var phase: MirrorSession.Phase?
     private var lastError: String?
     private let defaults = UserDefaults.standard
-    private let displayMode = DisplayModeSwitcher()
+    private let displayMode = DisplayOptimizer()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         defaults.register(defaults: ["audio": true, "maxHeight": 1080, "delayMs": 400, "displayID": 0,
@@ -57,13 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
 
         // Displays
-        let screens = NSScreen.screens
-        if screens.count > 1 {
+        let displays = physicalDisplays
+        if displays.count > 1 {
             let sub = NSMenu()
             let chosen = currentDisplayID
-            for s in screens {
-                guard let id = s.displayID else { continue }
-                let i = item(s.localizedName, #selector(setDisplay(_:)))
+            for id in displays {
+                let i = item(displayName(id), #selector(setDisplay(_:)))
                 i.tag = Int(id)
                 i.state = id == chosen ? .on : .off
                 sub.addItem(i)
@@ -197,10 +196,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Session
 
+    /// Online displays, including ones mirroring our virtual display, excluding the virtual one.
+    private var physicalDisplays: [CGDirectDisplayID] {
+        var count: UInt32 = 0
+        CGGetOnlineDisplayList(0, nil, &count)
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        CGGetOnlineDisplayList(count, &ids, &count)
+        return ids.prefix(Int(count)).filter { $0 != displayMode.virtualDisplayID && CGDisplayIsActive($0) != 0 }
+    }
+
+    private func displayName(_ id: CGDirectDisplayID) -> String {
+        if let s = NSScreen.screens.first(where: { $0.displayID == id }) { return s.localizedName }
+        return CGDisplayIsBuiltin(id) != 0 ? "Écran intégré" : "Écran \(id)"
+    }
+
     private var currentDisplayID: CGDirectDisplayID {
         let id = CGDirectDisplayID(defaults.integer(forKey: "displayID"))
-        let online = NSScreen.screens.compactMap(\.displayID)
-        return online.contains(id) ? id : CGMainDisplayID()
+        let online = physicalDisplays
+        if online.contains(id) { return id }
+        return online.first(where: { CGDisplayIsBuiltin($0) != 0 }) ?? online.first ?? CGMainDisplayID()
     }
 
     private func restartIfCasting() {
@@ -225,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if defaults.bool(forKey: "optimizeForDestination") {
             let target = destinationResolution(maxHeight: options.maxHeight)
             do {
-                try displayMode.apply(display: options.displayID, target: target)
+                options.displayID = try displayMode.apply(display: options.displayID, target: target)
             } catch {
                 displayMode.restore()
                 alert("Résolution de l'écran inchangée : \(error.localizedDescription).\n\nLa diffusion continue avec la résolution actuelle.")

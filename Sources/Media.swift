@@ -52,10 +52,18 @@ final class ScreenCapture: NSObject, MediaSource, SCStreamOutput, SCStreamDelega
     func start(completion: @escaping (Error?) -> Void) {
         Task {
             do {
-                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                guard let display = content.displays.first(where: { $0.displayID == self.displayID })
-                    ?? content.displays.first
-                else { throw NSError(domain: "CastMirror", code: 1, userInfo: [NSLocalizedDescriptionKey: "aucun écran"]) }
+                // A display created a moment ago (virtual 16:9 one) can take a little while to be listed.
+                var found: SCDisplay?
+                for attempt in 0..<20 {
+                    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    found = content.displays.first(where: { $0.displayID == self.displayID })
+                    if found != nil || attempt == 19 { break }
+                    try await Task.sleep(nanoseconds: 150_000_000)
+                }
+                guard let display = found else {
+                    throw NSError(domain: "CastMirror", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: "écran \(self.displayID) introuvable"])
+                }
                 let filter = SCContentFilter(display: display, excludingWindows: [])
                 let cfg = SCStreamConfiguration()
                 cfg.width = self.width
