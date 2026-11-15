@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let displayMode = DisplayOptimizer()
     /// Bumped by every start/stop, so a start still waiting for the display is dropped.
     private var startToken = 0
+    /// Cast paused by sleep, resumed on wake (with a few retries while the network comes back).
+    private var resumeDevice: CastDevice?
+    private var resumeAttempts = 0
+    private var asleep = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         defaults.register(defaults: ["audio": true, "maxHeight": 1080, "delayMs": 400, "displayID": 0,
@@ -26,6 +30,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateIcon()
         browser.onChange = { [weak self] devices in self?.devices = devices }
         browser.start(queue: .main)
+
+        let nc = NSWorkspace.shared.notificationCenter
+        nc.addObserver(self, selector: #selector(willSleep(_:)), name: NSWorkspace.willSleepNotification, object: nil)
+        nc.addObserver(self, selector: #selector(willSleep(_:)), name: NSWorkspace.screensDidSleepNotification, object: nil)
+        nc.addObserver(self, selector: #selector(didWake(_:)), name: NSWorkspace.didWakeNotification, object: nil)
+        nc.addObserver(self, selector: #selector(didWake(_:)), name: NSWorkspace.screensDidWakeNotification, object: nil)
+    }
+
+    // MARK: Sleep
+
+    private var isCasting: Bool {
+        if case .ended? = phase { return false }
+        return phase != nil
+    }
+
+    /// Lid closed, "Suspendre", or the display turned off by hand: the capture can't go on.
+    /// Stop cleanly while the displays can still be reconfigured, and resume on wake.
+    @objc private func willSleep(_ n: Notification) {
+        asleep = true
+        guard isCasting, let d = sessionDevice else { return }
+        log("\(n.name.rawValue): pausing cast to \(d.name)")
+        pauseForSleep(d)
+        teardown()
+    }
+
+    @objc private func didWake(_ n: Notification) {
+        guard CGDisplayIsAsleep(CGMainDisplayID()) == 0 else { return }  // screensDidWake comes later
+        guard asleep else { return }
+        asleep = false
+        displayMode.retryRestore()
+        guard let d = resumeDevice else { return }
+        log("\(n.name.rawValue): resuming cast to \(d.name)")
+        resumeSoon(d, after: 3)  // let Wi-Fi reconnect
+    }
+
+    private func pauseForSleep(_ d: CastDevice) {
+        resumeDevice = d
+        resumeAttempts = 4
+    }
+
+    private func resumeSoon(_ d: CastDevice, after seconds: Double) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self, !self.asleep, self.resumeDevice?.id == d.id, !self.isCasting else { return }
+            self.resumeAttempts -= 1
+            self.start(d)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -141,6 +191,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .streaming?:
             return defaults.bool(forKey: "extend") ? "Écran étendu sur \(name)" : "Diffusion sur \(name)"
         case .ended?, nil:
+            if let d = resumeDevice {
+                return asleep ? "En pause (veille) : reprise sur \(d.name) au réveil" : "Reprise de la diffusion sur \(d.name)…"
+            }
             if let e = lastError { return "Erreur : \(e)" }
             return devices.isEmpty ? "Aucun appareil Cast trouvé" : "Inactif"
         }
@@ -158,11 +211,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func castTo(_ sender: NSMenuItem) {
         guard let device = sender.representedObject as? CastDevice else { return }
-        if session != nil, sessionDevice?.id == device.id { stopCasting(); return }
+        if isCasting, sessionDevice?.id == device.id { stopCasting(); return }
+        resumeDevice = nil
         start(device)
     }
 
     @objc private func stopCasting() {
+        resumeDevice = nil
+        teardown()
+    }
+
+    private func teardown() {
         startToken += 1
         session?.stop()
         session = nil
@@ -303,6 +362,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.session = nil
                 self.lastError = reason
                 self.displayMode.restore()
+                if reason != nil {
+                    if CGDisplayIsAsleep(CGMainDisplayID()) != 0 || self.asleep {
+                        // The capture died because the displays went to sleep.
+                        log("cast ended while asleep: will resume on wake")
+                        self.asleep = true
+                        self.pauseForSleep(device)
+                        self.lastError = nil
+                        self.phase = nil
+                    } else if self.resumeDevice?.id == device.id, self.resumeAttempts > 0 {
+                        self.resumeSoon(device, after: 3)
+                    }
+                }
+            } else if p == .streaming {
+                self.resumeDevice = nil
             }
             self.updateIcon()
         }

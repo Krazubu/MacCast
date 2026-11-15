@@ -4,6 +4,7 @@
 import AVFoundation
 import CoreGraphics
 import Foundation
+import IOKit.pwr_mgt
 import Network
 import QuartzCore
 
@@ -48,6 +49,9 @@ final class MirrorSession {
     private var audioEncoder: AudioEncoder?
     private var timers: [DispatchSourceTimer] = []
     private let size: (Int, Int)
+    /// Keeps the display (and so the Mac) from idling to sleep while casting:
+    /// a sleeping display stops ScreenCaptureKit and ends the cast.
+    private var awakeAssertion: IOPMAssertionID = 0
 
     init(device: CastDevice, options: MirrorOptions) {
         self.device = device
@@ -66,6 +70,11 @@ final class MirrorSession {
 
     private func connect() {
         set(.connecting)
+        let reason = "Cast Mirror diffuse l'écran sur \(device.name)" as CFString
+        if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+                                       IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &awakeAssertion) != kIOReturnSuccess {
+            awakeAssertion = 0
+        }
         log("connecting to \(device.name) (\(device.model)) \(device.endpoint)")
         let ch = CastChannel(endpoint: device.endpoint, queue: queue)
         ch.onReady = { [weak self] in self?.channelReady() }
@@ -280,6 +289,10 @@ final class MirrorSession {
             queue.asyncAfter(deadline: .now() + 0.3) { ch.close() }
         }
         udp?.close()
+        if awakeAssertion != 0 {
+            IOPMAssertionRelease(awakeAssertion)
+            awakeAssertion = 0
+        }
         set(.ended(reason))
     }
 

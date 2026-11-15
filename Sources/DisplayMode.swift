@@ -144,15 +144,43 @@ final class DisplayOptimizer {
         pending = nil
         guard let v = virtual else { return }
         virtual = nil
-        if let mirrored = v.mirrored {
-            do {
-                try configure { CGConfigureDisplayMirrorOfDisplay($0, mirrored, kCGNullDirectDisplay) }
-            } catch {
-                log("unmirror failed: \(error.localizedDescription)")
-            }
+        if let mirrored = v.mirrored, !unmirror(mirrored, quiet: false) {
+            // Typically 1014 while the displays sleep. Keep the virtual display alive (the
+            // physical display still mirrors it, a consistent state) and try again.
+            stuck = (v.display, mirrored)
+            log("display \(mirrored): unmirror refused, will retry")
+            scheduleRetry(1)
+            return
         }
         log("virtual display \(v.display.displayID) removed")
         _ = v.display  // released here, which removes it from the system
+    }
+
+    /// Tries a refused restore again now (on wake).
+    func retryRestore() {
+        guard let s = stuck, unmirror(s.mirrored, quiet: true) else { return }
+        stuck = nil
+        log("display \(s.mirrored): unmirrored, virtual display \(s.display.displayID) removed")
+    }
+
+    private var stuck: (display: VirtualDisplay, mirrored: CGDirectDisplayID)?
+
+    private func scheduleRetry(_ n: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, self.stuck != nil else { return }
+            self.retryRestore()
+            if self.stuck != nil, n < 900 { self.scheduleRetry(n + 1) }  // up to 30 minutes
+        }
+    }
+
+    private func unmirror(_ display: CGDirectDisplayID, quiet: Bool) -> Bool {
+        do {
+            try configure(quiet: quiet) { CGConfigureDisplayMirrorOfDisplay($0, display, kCGNullDirectDisplay) }
+            return true
+        } catch {
+            if !quiet { log("unmirror failed: \(error.localizedDescription)") }
+            return false
+        }
     }
 
     /// Creates the virtual display, then runs `configure` until macOS accepts it.
@@ -163,6 +191,13 @@ final class DisplayOptimizer {
     private func create(target: (Int, Int), mirrored: CGDirectDisplayID?,
                         completion: @escaping (Result<CGDirectDisplayID, Error>) -> Void,
                         configure step: @escaping (CGDirectDisplayID) throws -> Void) {
+        if stuck != nil {
+            retryRestore()
+            if stuck != nil {
+                completion(.failure(DisplayModeError.configurationFailed(.cannotComplete)))
+                return
+            }
+        }
         guard let v = VirtualDisplay(width: target.0, height: target.1, extended: mirrored == nil) else {
             completion(.failure(DisplayModeError.virtualDisplayFailed))
             return
@@ -209,22 +244,22 @@ final class DisplayOptimizer {
     }
 
     /// For this login session only: a crash never leaves the Mac configured for good.
-    private func configure(_ change: (CGDisplayConfigRef) -> CGError) throws {
+    private func configure(quiet: Bool = false, _ change: (CGDisplayConfigRef) -> CGError) throws {
         var config: CGDisplayConfigRef?
         var err = CGBeginDisplayConfiguration(&config)
         guard err == .success, let config else {
-            log("CGBeginDisplayConfiguration: \(err.rawValue)")
+            if !quiet { log("CGBeginDisplayConfiguration: \(err.rawValue)") }
             throw DisplayModeError.configurationFailed(err)
         }
         err = change(config)
         guard err == .success else {
-            log("display configuration change: \(err.rawValue)")
+            if !quiet { log("display configuration change: \(err.rawValue)") }
             CGCancelDisplayConfiguration(config)
             throw DisplayModeError.configurationFailed(err)
         }
         err = CGCompleteDisplayConfiguration(config, .forSession)
         guard err == .success else {
-            log("CGCompleteDisplayConfiguration: \(err.rawValue)")
+            if !quiet { log("CGCompleteDisplayConfiguration: \(err.rawValue)") }
             throw DisplayModeError.configurationFailed(err)
         }
     }

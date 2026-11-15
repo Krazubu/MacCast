@@ -67,7 +67,13 @@ again, or choose *Arrêter la diffusion*, to stop. The menu also lets you pick:
 - **Diffuser le son**: turns the system sound on or off.
 - **Ouvrir à la connexion**: starts the app at login.
 
-Changing a setting while mirroring restarts the stream. The log is at
+Changing a setting while mirroring restarts the stream.
+
+While casting, the app keeps the Mac's display from going to sleep on its own, like a
+video player does: a sleeping display would stop the capture. If you put the Mac to
+sleep, close the lid or turn the display off yourself, the app stops the cast cleanly
+first and puts the displays back. It casts to the same device again when you wake the
+Mac, retrying for a few seconds while Wi-Fi reconnects. The log is at
 `~/Library/Logs/CastMirror.log`.
 
 ## Command line
