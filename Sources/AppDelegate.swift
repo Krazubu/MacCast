@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastError: String?
     private let defaults = UserDefaults.standard
     private let displayMode = DisplayOptimizer()
+    /// Bumped by every start/stop, so a start still waiting for the display is dropped.
+    private var startToken = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         defaults.register(defaults: ["audio": true, "maxHeight": 1080, "delayMs": 400, "displayID": 0,
@@ -145,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func stopCasting() {
+        startToken += 1
         session?.stop()
         session = nil
         phase = nil
@@ -235,19 +238,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         options.targetDelayMs = defaults.integer(forKey: "delayMs")
         options.audio = defaults.bool(forKey: "audio")
 
-        // Done before the session is created: the stream size follows the display's new shape.
-        if defaults.bool(forKey: "optimizeForDestination") {
-            let target = destinationResolution(maxHeight: options.maxHeight)
-            do {
-                options.displayID = try displayMode.apply(display: options.displayID, target: target)
-            } catch {
-                displayMode.restore()
-                alert("Résolution de l'écran inchangée : \(error.localizedDescription).\n\nLa diffusion continue avec la résolution actuelle.")
-            }
-        } else {
-            displayMode.restore()
-        }
+        sessionDevice = device
+        phase = .connecting
+        lastError = nil
+        startToken += 1
+        let token = startToken
+        updateIcon()
 
+        // Done before the session is created: the stream size follows the display's new shape.
+        guard defaults.bool(forKey: "optimizeForDestination") else {
+            displayMode.restore()
+            launch(device, options)
+            return
+        }
+        let target = destinationResolution(maxHeight: options.maxHeight)
+        displayMode.apply(display: options.displayID, target: target) { [weak self] result in
+            guard let self, self.startToken == token else { return }
+            switch result {
+            case .success(let id):
+                options.displayID = id
+            case .failure(let error):
+                log("optimize for HD stream failed: \(error.localizedDescription)")
+                self.displayMode.restore()
+                self.alert("Écran virtuel 16:9 indisponible : \(error.localizedDescription).\n\nLa diffusion continue avec l'écran du Mac tel quel.")
+                guard self.startToken == token else { return }
+            }
+            self.launch(device, options)
+        }
+    }
+
+    private func launch(_ device: CastDevice, _ options: MirrorOptions) {
         let s = MirrorSession(device: device, options: options)
         s.onPhase = { [weak self, weak s] p in
             guard let self, let s, self.session === s else { return }
@@ -260,9 +280,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.updateIcon()
         }
         session = s
-        sessionDevice = device
-        phase = .connecting
-        lastError = nil
         updateIcon()
         s.start()
     }

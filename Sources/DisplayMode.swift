@@ -55,7 +55,7 @@ final class VirtualDisplay {
         d.serialNum = 1
         d.terminationHandler = { _, _ in log("virtual display terminated") }
         display = CGVirtualDisplay(descriptor: d)
-        guard display.displayID != 0 else { return nil }
+        guard display.displayID != 0 else { log("virtual display: no display ID"); return nil }
 
         let settings = CGVirtualDisplaySettings()
         settings.hiDPI = 1
@@ -63,7 +63,7 @@ final class VirtualDisplay {
             CGVirtualDisplayMode(width: UInt32(width * 2), height: UInt32(height * 2), refreshRate: 60),
             CGVirtualDisplayMode(width: UInt32(width), height: UInt32(height), refreshRate: 60),
         ]
-        guard display.apply(settings) else { return nil }
+        guard display.apply(settings) else { log("virtual display \(display.displayID): settings refused"); return nil }
     }
 }
 
@@ -74,38 +74,70 @@ final class VirtualDisplay {
 /// the virtual display, so the picture always fills the TV at full resolution.
 final class DisplayOptimizer {
     private var virtual: (display: VirtualDisplay, mirrored: CGDirectDisplayID, target: (Int, Int))?
+    /// Virtual display waiting for macOS to accept the mirroring.
+    private var pending: VirtualDisplay?
+    private var generation = 0
 
-    var virtualDisplayID: CGDirectDisplayID? { virtual?.display.displayID }
+    var virtualDisplayID: CGDirectDisplayID? { virtual?.display.displayID ?? pending?.displayID }
 
-    /// Returns the display to capture.
-    func apply(display: CGDirectDisplayID, target: (Int, Int)) throws -> CGDirectDisplayID {
-        if let v = virtual {
-            if v.mirrored == display, v.target == target { return v.display.displayID }
-            restore()
+    /// Calls `completion` on the main queue with the display to capture. Call from the main thread.
+    func apply(display: CGDirectDisplayID, target: (Int, Int),
+               completion: @escaping (Result<CGDirectDisplayID, Error>) -> Void) {
+        if let v = virtual, v.mirrored == display, v.target == target {
+            completion(.success(v.display.displayID))
+            return
         }
+        restore()
         if hasAspectRatio(display, of: target) {
             log("display \(display): already \(CGDisplayCopyDisplayMode(display).map(describe) ?? "?"), unchanged")
-            return display
+            completion(.success(display))
+            return
         }
 
         guard let v = VirtualDisplay(width: target.0, height: target.1) else {
-            throw DisplayModeError.virtualDisplayFailed
+            completion(.failure(DisplayModeError.virtualDisplayFailed))
+            return
         }
         let id = v.displayID
-        // Prefer the HiDPI mode (sharper on the Mac's own panel).
-        let modes = (CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary)
-            as? [CGDisplayMode]) ?? []
-        if let mode = modes.filter({ $0.width == target.0 && $0.height == target.1 })
-            .max(by: { $0.pixelWidth < $1.pixelWidth }) {
-            try? setMode(id, mode)
+        pending = v
+        let token = generation
+
+        // A display created a moment ago is not always ready to be part of a mirror set
+        // (CGCompleteDisplayConfiguration fails with 1001 in the app). Let the run loop
+        // process its arrival and try again for up to 3 seconds.
+        func attempt(_ n: Int) {
+            guard token == generation, let v = pending else { return }  // restore() was called meanwhile
+            do {
+                if n == 1 {
+                    // Prefer the HiDPI mode (sharper on the Mac's own panel).
+                    let modes = (CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary)
+                        as? [CGDisplayMode]) ?? []
+                    if let mode = modes.filter({ $0.width == target.0 && $0.height == target.1 })
+                        .max(by: { $0.pixelWidth < $1.pixelWidth }) {
+                        try? setMode(id, mode)
+                    }
+                }
+                try configure { CGConfigureDisplayMirrorOfDisplay($0, display, id) }
+                pending = nil
+                virtual = (v, display, target)
+                log("display \(display): mirroring virtual display \(id) \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?") (attempt \(n))")
+                completion(.success(id))
+            } catch {
+                if n < 15 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { attempt(n + 1) }
+                } else {
+                    log("display \(display): mirroring virtual display \(id) failed after \(n) attempts: \(error.localizedDescription)")
+                    pending = nil
+                    completion(.failure(error))
+                }
+            }
         }
-        try configure { CGConfigureDisplayMirrorOfDisplay($0, display, id) }
-        virtual = (v, display, target)
-        log("display \(display): mirroring virtual display \(id) \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?")")
-        return id
+        DispatchQueue.main.async { attempt(1) }
     }
 
     func restore() {
+        generation += 1
+        pending = nil
         guard let v = virtual else { return }
         virtual = nil
         do {
@@ -125,13 +157,20 @@ final class DisplayOptimizer {
     private func configure(_ change: (CGDisplayConfigRef) -> CGError) throws {
         var config: CGDisplayConfigRef?
         var err = CGBeginDisplayConfiguration(&config)
-        guard err == .success, let config else { throw DisplayModeError.configurationFailed(err) }
+        guard err == .success, let config else {
+            log("CGBeginDisplayConfiguration: \(err.rawValue)")
+            throw DisplayModeError.configurationFailed(err)
+        }
         err = change(config)
         guard err == .success else {
+            log("display configuration change: \(err.rawValue)")
             CGCancelDisplayConfiguration(config)
             throw DisplayModeError.configurationFailed(err)
         }
         err = CGCompleteDisplayConfiguration(config, .forSession)
-        guard err == .success else { throw DisplayModeError.configurationFailed(err) }
+        guard err == .success else {
+            log("CGCompleteDisplayConfiguration: \(err.rawValue)")
+            throw DisplayModeError.configurationFailed(err)
+        }
     }
 }

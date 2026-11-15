@@ -73,22 +73,28 @@ if arguments.contains("--modes") {
 }
 if let i = arguments.firstIndex(of: "--optimize-test") {
     // Applies "Optimiser pour la diffusion vidéo HD" for a few seconds, then restores.
-    _ = NSApplication.shared
+    // Runs inside a real NSApplication run loop, like the menu bar app.
     let seconds = (i + 1 < arguments.count ? Double(arguments[i + 1]) : nil) ?? 5
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
     let optimizer = DisplayOptimizer()
     let main = CGMainDisplayID()
-    do {
-        let id = try optimizer.apply(display: main, target: destinationResolution(maxHeight: 1080))
-        print("capture display \(id): bounds \(CGDisplayBounds(id).size), mode \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?"), main is mirror: \(CGDisplayIsInMirrorSet(main) != 0)")
-    } catch {
-        print("failed: \(error.localizedDescription)")
+    DispatchQueue.main.async {
+        optimizer.apply(display: main, target: destinationResolution(maxHeight: 1080)) { result in
+            switch result {
+            case .success(let id):
+                print("capture display \(id): bounds \(CGDisplayBounds(id).size), mode \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?"), main is mirror: \(CGDisplayIsInMirrorSet(main) != 0)")
+            case .failure(let error):
+                print("failed: \(error.localizedDescription)")
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                optimizer.restore()
+                print("restored: \(CGDisplayCopyDisplayMode(main).map(describe) ?? "?"), main is mirror: \(CGDisplayIsInMirrorSet(main) != 0)")
+                exit(0)
+            }
+        }
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-        optimizer.restore()
-        print("restored: \(CGDisplayCopyDisplayMode(main).map(describe) ?? "?"), main is mirror: \(CGDisplayIsInMirrorSet(main) != 0)")
-        exit(0)
-    }
-    dispatchMain()
+    app.run()
 }
 if arguments.contains("--cast") || arguments.contains("--list") {
     _ = NSApplication.shared  // window server connection for ScreenCaptureKit
