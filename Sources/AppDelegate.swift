@@ -12,9 +12,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var phase: MirrorSession.Phase?
     private var lastError: String?
     private let defaults = UserDefaults.standard
+    private let displayMode = DisplayModeSwitcher()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        defaults.register(defaults: ["audio": true, "maxHeight": 1080, "delayMs": 400, "displayID": 0])
+        defaults.register(defaults: ["audio": true, "maxHeight": 1080, "delayMs": 400, "displayID": 0,
+                                     "optimizeForDestination": false])
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         menu.delegate = self
@@ -25,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        displayMode.restore()
         guard let s = session else { return }
         s.stop()
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
@@ -67,6 +70,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             menu.addItem(submenu("Écran", sub))
         }
+
+        let optimize = NSMenu()
+        let (dw, dh) = destinationResolution(maxHeight: defaults.integer(forKey: "maxHeight"))
+        let toDestination = defaults.bool(forKey: "optimizeForDestination")
+        for (dest, title) in [(false, "L'écran du Mac"), (true, "L'écran de destination (\(dw)x\(dh))")] {
+            let i = item(title, #selector(setOptimize(_:)))
+            i.tag = dest ? 1 : 0
+            i.state = toDestination == dest ? .on : .off
+            if dest {
+                i.toolTip = "Pendant la diffusion, l'écran du Mac passe à la résolution de l'image envoyée, ou à la plus grande résolution inférieure au même format."
+            }
+            optimize.addItem(i)
+        }
+        menu.addItem(submenu("Optimiser pour", optimize))
 
         let quality = NSMenu()
         for (h, title) in [(1080, "1080p"), (720, "720p (plus léger)")] {
@@ -133,7 +150,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         session = nil
         phase = nil
         lastError = nil
+        displayMode.restore()
         updateIcon()
+    }
+
+    @objc private func setOptimize(_ sender: NSMenuItem) {
+        defaults.set(sender.tag == 1, forKey: "optimizeForDestination")
+        if sender.tag == 0 { displayMode.restore() }
+        restartIfCasting()
     }
 
     @objc private func setDisplay(_ sender: NSMenuItem) {
@@ -197,6 +221,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         options.targetDelayMs = defaults.integer(forKey: "delayMs")
         options.audio = defaults.bool(forKey: "audio")
 
+        // Done before the session is created: the stream size follows the display's new shape.
+        if defaults.bool(forKey: "optimizeForDestination") {
+            let target = destinationResolution(maxHeight: options.maxHeight)
+            do {
+                try displayMode.apply(display: options.displayID, target: target)
+            } catch {
+                displayMode.restore()
+                alert("Résolution de l'écran inchangée : \(error.localizedDescription).\n\nLa diffusion continue avec la résolution actuelle.")
+            }
+        } else {
+            displayMode.restore()
+        }
+
         let s = MirrorSession(device: device, options: options)
         s.onPhase = { [weak self, weak s] p in
             guard let self, let s, self.session === s else { return }
@@ -204,6 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if case .ended(let reason) = p {
                 self.session = nil
                 self.lastError = reason
+                self.displayMode.restore()
             }
             self.updateIcon()
         }

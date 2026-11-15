@@ -42,6 +42,15 @@ Click the TV icon in the menu bar, then click a device to start mirroring. Click
 again, or choose *Arrêter la diffusion*, to stop. The menu also lets you pick:
 
 - **Écran**: which display to mirror, when there are several.
+- **Optimiser pour**: *L'écran du Mac* leaves the Mac display alone, and the TV shows
+  it with black bars if the shapes differ. *L'écran de destination* switches the Mac
+  display, for the duration of the cast, to the resolution of the picture sent to the
+  TV. That is 1920x1080, or 1280x720 in 720p, because Cast receivers don't report their
+  own screen size and always show a 16:9 stream. If the Mac display has no such mode, the app
+  uses the largest smaller mode with the same aspect ratio. If there is none at all, as on
+  MacBook built-in screens, which only offer 16:10 modes, the resolution stays unchanged
+  and the app says so. The original mode comes back when the cast stops or the app quits.
+  The switch only lasts for the login session, so a crash is undone at the next login.
 - **Qualité**: 1080p (6 Mbit/s) or 720p (3.5 Mbit/s).
 - **Latence**: the receiver's buffer. 200 ms is snappier, 800 ms copes better with
   weak Wi-Fi.
@@ -67,5 +76,6 @@ The same binary can be used for testing:
 | `--delay <ms>` | receiver target delay (default 400) |
 | `--seconds <n>` | stops after n seconds (default 30) |
 | `--list` | lists the devices found |
+| `--modes` | shows which mode *Optimiser pour l'écran de destination* would pick on each display, without changing anything |
 
 Every 2 seconds it logs how many frames were sent and acknowledged by the receiver.

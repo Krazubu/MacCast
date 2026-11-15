@@ -56,6 +56,21 @@ enum CLI {
 }
 
 let arguments = CommandLine.arguments
+if arguments.contains("--modes") {
+    // Dry run of "Optimiser pour l'écran de destination": nothing is changed.
+    var count: UInt32 = 0
+    CGGetActiveDisplayList(0, nil, &count)
+    var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+    CGGetActiveDisplayList(count, &ids, &count)
+    for id in ids {
+        print("display \(id): current \(CGDisplayCopyDisplayMode(id).map(describe) ?? "?")")
+        for h in [1080, 720] {
+            let t = destinationResolution(maxHeight: h)
+            print("  for \(t.0)x\(t.1): \(bestMode(for: id, target: t).map(describe) ?? "no mode with this aspect ratio")")
+        }
+    }
+    exit(0)
+}
 if arguments.contains("--cast") || arguments.contains("--list") {
     _ = NSApplication.shared  // window server connection for ScreenCaptureKit
     CLI.run(arguments)
