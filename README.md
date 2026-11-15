@@ -43,7 +43,7 @@ again, or choose *Arrêter la diffusion*, to stop. The menu also lets you pick:
 
 - **Écran**: which display to mirror, when there are several.
 - **Optimiser pour**: *L'écran du Mac* leaves the Mac display alone, and the TV shows
-  it with black bars if the shapes differ. *L'écran de destination* switches the Mac
+  it with black bars if the shapes differ. *La diffusion vidéo HD* switches the Mac
   display, for the duration of the cast, to the resolution of the picture sent to the
   TV. That is 1920x1080, or 1280x720 in 720p, because Cast receivers don't report their
   own screen size and always show a 16:9 stream. If the Mac display has no such mode, the app
@@ -80,7 +80,7 @@ The same binary can be used for testing:
 | `--delay <ms>` | receiver target delay (default 400) |
 | `--seconds <n>` | stops after n seconds (default 30) |
 | `--list` | lists the devices found |
-| `--modes` | shows which mode *Optimiser pour l'écran de destination* would pick on each display, without changing anything |
-| `--optimize-test [s]` | applies *Optimiser pour l'écran de destination* to the main display for s seconds (default 5), then restores it |
+| `--modes` | shows which mode *Optimiser pour la diffusion vidéo HD* would pick on each display, without changing anything |
+| `--optimize-test [s]` | applies *Optimiser pour la diffusion vidéo HD* to the main display for s seconds (default 5), then restores it |
 
 Every 2 seconds it logs how many frames were sent and acknowledged by the receiver.

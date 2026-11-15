@@ -57,7 +57,7 @@ enum CLI {
 
 let arguments = CommandLine.arguments
 if arguments.contains("--modes") {
-    // Dry run of "Optimiser pour l'écran de destination": nothing is changed.
+    // Dry run of "Optimiser pour la diffusion vidéo HD": nothing is changed.
     var count: UInt32 = 0
     CGGetActiveDisplayList(0, nil, &count)
     var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
@@ -72,7 +72,7 @@ if arguments.contains("--modes") {
     exit(0)
 }
 if let i = arguments.firstIndex(of: "--optimize-test") {
-    // Applies "Optimiser pour l'écran de destination" for a few seconds, then restores.
+    // Applies "Optimiser pour la diffusion vidéo HD" for a few seconds, then restores.
     _ = NSApplication.shared
     let seconds = (i + 1 < arguments.count ? Double(arguments[i + 1]) : nil) ?? 5
     let optimizer = DisplayOptimizer()

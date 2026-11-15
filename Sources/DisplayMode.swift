@@ -1,4 +1,4 @@
-// "Optimiser pour l'écran de destination": give the Mac display the shape of
+// "Optimiser pour la diffusion vidéo HD": give the Mac display the shape of
 // the stream sent to the Cast device, and put everything back afterwards.
 
 import CoreGraphics

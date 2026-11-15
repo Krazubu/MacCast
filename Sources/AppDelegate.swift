@@ -73,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let optimize = NSMenu()
         let (dw, dh) = destinationResolution(maxHeight: defaults.integer(forKey: "maxHeight"))
         let toDestination = defaults.bool(forKey: "optimizeForDestination")
-        for (dest, title) in [(false, "L'écran du Mac"), (true, "L'écran de destination (\(dw)x\(dh))")] {
+        for (dest, title) in [(false, "L'écran du Mac"), (true, "La diffusion vidéo HD (\(dw)x\(dh))")] {
             let i = item(title, #selector(setOptimize(_:)))
             i.tag = dest ? 1 : 0
             i.state = toDestination == dest ? .on : .off
