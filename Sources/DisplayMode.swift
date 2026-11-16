@@ -1,4 +1,4 @@
-// "Optimiser pour la diffusion vidéo HD": give the Mac display the shape of
+// "Optimize For › The HD Video Stream": give the Mac display the shape of
 // the stream sent to the Cast device, and put everything back afterwards.
 
 import CoreGraphics
@@ -30,9 +30,9 @@ enum DisplayModeError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .virtualDisplayFailed:
-            return "impossible de créer l'écran virtuel 16:9"
+            return L("could not create the 16:9 virtual display")
         case .configurationFailed(let e):
-            return "changement de résolution refusé (erreur \(e.rawValue))"
+            return L("display configuration refused (error %ld)", Int(e.rawValue))
         }
     }
 }
@@ -83,7 +83,7 @@ final class VirtualDisplay {
 
 /// Manages the 16:9 virtual display used for casting, and puts everything back.
 ///
-/// - Mirroring ("Optimiser pour la diffusion vidéo HD"): a display already in the stream's
+/// - Mirroring ("Optimize For › The HD Video Stream"): a display already in the stream's
 ///   aspect ratio is left alone. Any other mirrors a virtual display of the stream's size,
 ///   which is what gets captured, so the picture always fills the TV at full resolution.
 /// - Extended desktop: the virtual display is a second screen placed right of the main one,

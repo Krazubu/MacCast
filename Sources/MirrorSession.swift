@@ -70,7 +70,7 @@ final class MirrorSession {
 
     private func connect() {
         set(.connecting)
-        let reason = "Cast Mirror diffuse l'écran sur \(device.name)" as CFString
+        let reason = L("Cast Mirror is casting to %@", device.name) as CFString
         if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
                                        IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &awakeAssertion) != kIOReturnSuccess {
             awakeAssertion = 0
@@ -79,12 +79,12 @@ final class MirrorSession {
         let ch = CastChannel(endpoint: device.endpoint, queue: queue)
         ch.onReady = { [weak self] in self?.channelReady() }
         ch.onMessage = { [weak self] m, json in self?.handle(m, json) }
-        ch.onClose = { [weak self] reason in self?.finish(reason ?? "Connexion fermée") }
+        ch.onClose = { [weak self] reason in self?.finish(reason ?? L("Connection closed")) }
         channel = ch
         ch.start()
         after(20) { [weak self] in
             guard let self, self.phase != .streaming else { return }
-            self.finish("L'appareil ne répond pas")
+            self.finish(L("The device is not responding"))
         }
     }
 
@@ -106,11 +106,11 @@ final class MirrorSession {
         case (CastNamespace.receiver, "RECEIVER_STATUS"):
             receiverStatus(json)
         case (CastNamespace.receiver, "LAUNCH_ERROR"), (CastNamespace.receiver, "INVALID_REQUEST"):
-            finish("L'appareil refuse la recopie d'écran (\(json["reason"] as? String ?? type))")
+            finish(L("The device refuses screen mirroring (%@)", json["reason"] as? String ?? type))
         case (CastNamespace.webrtc, "ANSWER"):
             answer(json)
         case (CastNamespace.connection, "CLOSE"):
-            if m.source == transportId { finish("Diffusion fermée par l'appareil") }
+            if m.source == transportId { finish(L("Cast closed by the device")) }
         default:
             break
         }
@@ -120,11 +120,11 @@ final class MirrorSession {
         let apps = ((json["status"] as? [String: Any])?["applications"] as? [[String: Any]]) ?? []
         let app = apps.first { $0["appId"] as? String == Self.mirroringAppId }
         guard let app, let tid = app["transportId"] as? String else {
-            if transportId != nil { finish("Diffusion arrêtée sur l'appareil") }
+            if transportId != nil { finish(L("Cast stopped on the device")) }
             return
         }
         guard tid != transportId else { return }
-        if phase == .streaming { finish("Diffusion remplacée sur l'appareil"); return }
+        if phase == .streaming { finish(L("Cast replaced on the device")); return }
         log("mirroring app running, transport \(tid)")
         transportId = tid
         appSessionId = app["sessionId"] as? String
@@ -167,12 +167,12 @@ final class MirrorSession {
         guard json["result"] as? String == "ok", let a = json["answer"] as? [String: Any],
               let port = (a["udpPort"] as? NSNumber)?.uint16Value
         else {
-            let err = (json["error"] as? [String: Any])?["description"] as? String ?? "réponse invalide"
-            finish("Flux refusé par l'appareil : \(err)")
+            let err = (json["error"] as? [String: Any])?["description"] as? String ?? L("invalid answer")
+            finish(L("Stream refused by the device: %@", err))
             return
         }
         guard let host = channel?.remoteHost, let audioConfig, let videoConfig else {
-            finish("Adresse de l'appareil inconnue"); return
+            finish(L("Unknown device address")); return
         }
         let indexes = (a["sendIndexes"] as? [NSNumber])?.map(\.intValue) ?? []
         let ssrcs = (a["ssrcs"] as? [NSNumber])?.map(\.uint32Value) ?? []
@@ -187,7 +187,7 @@ final class MirrorSession {
                 audioStream = CastRTPStream(config: audioConfig, receiverSSRC: rs, transport: transport)
             }
         }
-        guard videoStream != nil else { finish("L'appareil n'accepte pas la vidéo H.264"); return }
+        guard videoStream != nil else { finish(L("The device does not accept H.264 video")); return }
         let streams = [videoStream, audioStream].compactMap { $0 }
         transport.onPacket = { data in handleRTCP(data, streams: streams) }
         log("streaming to \(host):\(port), \(size.0)x\(size.1), audio \(audioStream != nil)")
@@ -203,7 +203,7 @@ final class MirrorSession {
         every(2) { [weak self] in self?.logStats() }
 
         guard let ve = VideoEncoder(width: size.0, height: size.1, fps: options.fps, bitrate: options.videoBitrate) else {
-            finish("Encodeur H.264 indisponible"); return
+            finish(L("H.264 encoder unavailable")); return
         }
         videoEncoder = ve
         ve.onFrame = { [weak self] data, key, pts in
@@ -228,7 +228,7 @@ final class MirrorSession {
             let capture = ScreenCapture(displayID: options.displayID, width: size.0, height: size.1,
                                         fps: options.fps, audio: audioStream != nil)
             capture.onError = { [weak self] e in
-                self?.queue.async { self?.finish("Capture interrompue (\(e.localizedDescription))") }
+                self?.queue.async { self?.finish(L("Capture interrupted (%@)", e.localizedDescription)) }
             }
             src = capture
         }
@@ -240,7 +240,7 @@ final class MirrorSession {
             guard let self else { return }
             self.queue.async {
                 if let error {
-                    self.finish("Capture d'écran impossible : \(error.localizedDescription)")
+                    self.finish(L("Screen capture failed: %@", error.localizedDescription))
                 } else {
                     self.set(.streaming)
                 }

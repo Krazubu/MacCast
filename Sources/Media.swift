@@ -62,7 +62,7 @@ final class ScreenCapture: NSObject, MediaSource, SCStreamOutput, SCStreamDelega
                 }
                 guard let display = found else {
                     throw NSError(domain: "CastMirror", code: 1,
-                                  userInfo: [NSLocalizedDescriptionKey: "écran \(self.displayID) introuvable"])
+                                  userInfo: [NSLocalizedDescriptionKey: L("display %ld not found", Int(self.displayID))])
                 }
                 let filter = SCContentFilter(display: display, excludingWindows: [])
                 let cfg = SCStreamConfiguration()
@@ -208,7 +208,7 @@ final class TestPatternSource: MediaSource {
             ctx.setFillColor(CGColor(gray: 1, alpha: 1))
             ctx.fill(CGRect(x: barX, y: 0, width: 40, height: CGFloat(height)))
             let f = DateFormatter(); f.dateFormat = "HH:mm:ss.SSS"
-            let text = "Cast Mirror — mire de test  \(f.string(from: Date()))  #\(frame)"
+            let text = L("Cast Mirror — test pattern  %@  #%ld", f.string(from: Date()), frame)
             let font = CTFontCreateWithName("Helvetica-Bold" as CFString, CGFloat(height) / 14, nil)
             let attr = NSAttributedString(string: text, attributes: [
                 NSAttributedString.Key(kCTFontAttributeName as String): font,

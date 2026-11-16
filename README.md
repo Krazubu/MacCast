@@ -39,17 +39,17 @@ permission again.
 ## Use
 
 Click the TV icon in the menu bar, then click a device to start mirroring. Click it
-again, or choose *Arrêter la diffusion*, to stop. The menu also lets you pick:
+again, or choose *Stop Casting*, to stop. The menu also lets you pick:
 
-- **Mode**: *Recopie de l'écran* shows a Mac display on the TV. *Écran étendu* turns the
+- **Mode**: *Mirror Display* shows a Mac display on the TV. *Extended Display* turns the
   TV into a second screen instead. The app creates a 1920x1080 HiDPI virtual display
   (1280x720 in 720p) to the right of the main display, and streams it. You can drag
   windows onto it, or move it in System Settings › Displays. When the cast stops, it
-  disappears and macOS moves its windows back. *Écran* and *Optimiser pour* only
+  disappears and macOS moves its windows back. *Display* and *Optimize For* only
   apply to mirroring, so they are hidden in this mode.
-- **Écran**: which display to mirror, when there are several.
-- **Optimiser pour**: *L'écran du Mac* leaves the Mac display alone, and the TV shows
-  it with black bars if the shapes differ. *La diffusion vidéo HD* gives the desktop,
+- **Display**: which display to mirror, when there are several.
+- **Optimize For**: *The Mac Display* leaves the Mac display alone, and the TV shows
+  it with black bars if the shapes differ. *The HD Video Stream* gives the desktop,
   for the duration of the cast, the exact shape and size of the picture sent to the TV.
   That is 1920x1080, or 1280x720 in 720p, because Cast receivers don't report their own
   screen size and always show a 16:9 stream. The app creates a virtual display of that
@@ -61,13 +61,14 @@ again, or choose *Arrêter la diffusion*, to stop. The menu also lets you pick:
   login session, and the virtual display disappears with the app, so a crash leaves
   nothing behind. The virtual display relies on a private macOS API (`CGVirtualDisplay`,
   see `Sources/CGVirtualDisplay.h`), which a future macOS could change.
-- **Qualité**: 1080p (6 Mbit/s) or 720p (3.5 Mbit/s).
-- **Latence**: the receiver's buffer. 200 ms is snappier, 800 ms copes better with
+- **Quality**: 1080p (6 Mbit/s) or 720p (3.5 Mbit/s).
+- **Latency**: the receiver's buffer. 200 ms is snappier, 800 ms copes better with
   weak Wi-Fi.
-- **Diffuser le son**: turns the system sound on or off.
-- **Ouvrir à la connexion**: starts the app at login.
+- **Cast Sound**: turns the system sound on or off.
+- **Open at Login**: starts the app at login.
 
-Changing a setting while mirroring restarts the stream.
+Changing a setting while casting restarts the stream. The app is in English, or in French
+on a Mac set to French.
 
 While casting, the app keeps the Mac's display from going to sleep on its own, like a
 video player does: a sleeping display would stop the capture. If you put the Mac to
@@ -92,7 +93,7 @@ The same binary can be used for testing:
 | `--delay <ms>` | receiver target delay (default 400) |
 | `--seconds <n>` | stops after n seconds (default 30) |
 | `--list` | lists the devices found |
-| `--modes` | shows what *Optimiser pour la diffusion vidéo HD* would do on each display, without changing anything |
-| `--optimize-test [s] [--extend]` | applies *Optimiser pour la diffusion vidéo HD* to the main display (or, with `--extend`, creates the extended screen) for s seconds (default 5), then restores it |
+| `--modes` | shows what *Optimize For › The HD Video Stream* would do on each display, without changing anything |
+| `--optimize-test [s] [--extend]` | applies *Optimize For › The HD Video Stream* to the main display (or, with `--extend`, creates the extended screen) for s seconds (default 5), then restores it |
 
 Every 2 seconds it logs how many frames were sent and acknowledged by the receiver.

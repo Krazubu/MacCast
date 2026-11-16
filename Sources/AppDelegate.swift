@@ -91,13 +91,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         menu.addItem(disabled(statusText))
         if session != nil {
-            menu.addItem(item("Arrêter la diffusion", #selector(stopCasting), key: "s"))
+            menu.addItem(item(L("Stop Casting"), #selector(stopCasting), key: "s"))
         }
         menu.addItem(.separator())
 
-        menu.addItem(disabled("Diffuser sur"))
+        menu.addItem(disabled(L("Cast to")))
         if devices.isEmpty {
-            menu.addItem(disabled("  Recherche des appareils…"))
+            menu.addItem(disabled(L("  Searching for devices…")))
         }
         for d in devices {
             let i = item(d.name, #selector(castTo(_:)))
@@ -111,16 +111,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let extend = defaults.bool(forKey: "extend")
         let (dw, dh) = destinationResolution(maxHeight: defaults.integer(forKey: "maxHeight"))
         let mode = NSMenu()
-        for (ext, title) in [(false, "Recopie de l'écran"), (true, "Écran étendu (\(dw)x\(dh))")] {
+        for (ext, title) in [(false, L("Mirror Display")), (true, L("Extended Display (%ldx%ld)", dw, dh))] {
             let i = item(title, #selector(setExtend(_:)))
             i.tag = ext ? 1 : 0
             i.state = extend == ext ? .on : .off
             if ext {
-                i.toolTip = "Le téléviseur devient un second écran, à droite de l'écran principal. Glisse-y des fenêtres pendant la diffusion."
+                i.toolTip = L("The TV becomes a second display, right of the main one. Drag windows onto it while casting.")
             }
             mode.addItem(i)
         }
-        menu.addItem(submenu("Mode", mode))
+        menu.addItem(submenu(L("Mode"), mode))
 
         // Which display to mirror and how: irrelevant for an extended desktop.
         if !extend {
@@ -134,68 +134,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     i.state = id == chosen ? .on : .off
                     sub.addItem(i)
                 }
-                menu.addItem(submenu("Écran", sub))
+                menu.addItem(submenu(L("Display"), sub))
             }
 
             let optimize = NSMenu()
             let toDestination = defaults.bool(forKey: "optimizeForDestination")
-            for (dest, title) in [(false, "L'écran du Mac"), (true, "La diffusion vidéo HD (\(dw)x\(dh))")] {
+            for (dest, title) in [(false, L("The Mac Display")), (true, L("The HD Video Stream (%ldx%ld)", dw, dh))] {
                 let i = item(title, #selector(setOptimize(_:)))
                 i.tag = dest ? 1 : 0
                 i.state = toDestination == dest ? .on : .off
                 if dest {
-                    i.toolTip = "Pendant la diffusion, le bureau prend le format de l'image envoyée (16:9) : l'écran du Mac recopie un écran virtuel de cette taille."
+                    i.toolTip = L("While casting, the desktop takes the shape of the stream (16:9): the Mac display mirrors a virtual display of that size.")
                 }
                 optimize.addItem(i)
             }
-            menu.addItem(submenu("Optimiser pour", optimize))
+            menu.addItem(submenu(L("Optimize For"), optimize))
         }
 
         let quality = NSMenu()
-        for (h, title) in [(1080, "1080p"), (720, "720p (plus léger)")] {
+        for (h, title) in [(1080, "1080p"), (720, L("720p (lighter)"))] {
             let i = item(title, #selector(setQuality(_:)))
             i.tag = h
             i.state = defaults.integer(forKey: "maxHeight") == h ? .on : .off
             quality.addItem(i)
         }
-        menu.addItem(submenu("Qualité", quality))
+        menu.addItem(submenu(L("Quality"), quality))
 
         let latency = NSMenu()
-        for (ms, title) in [(200, "Faible (200 ms)"), (400, "Normale (400 ms)"), (800, "Stable (800 ms, Wi-Fi faible)")] {
+        for (ms, title) in [(200, L("Low (200 ms)")), (400, L("Normal (400 ms)")), (800, L("Steady (800 ms, weak Wi-Fi)"))] {
             let i = item(title, #selector(setLatency(_:)))
             i.tag = ms
             i.state = defaults.integer(forKey: "delayMs") == ms ? .on : .off
             latency.addItem(i)
         }
-        menu.addItem(submenu("Latence", latency))
+        menu.addItem(submenu(L("Latency"), latency))
 
-        let audio = item("Diffuser le son", #selector(toggleAudio))
+        let audio = item(L("Cast Sound"), #selector(toggleAudio))
         audio.state = defaults.bool(forKey: "audio") ? .on : .off
         menu.addItem(audio)
 
-        let login = item("Ouvrir à la connexion", #selector(toggleLogin))
+        let login = item(L("Open at Login"), #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
         menu.addItem(.separator())
-        menu.addItem(item("Afficher le journal", #selector(openLog)))
-        menu.addItem(item("Quitter Cast Mirror", #selector(quit), key: "q"))
+        menu.addItem(item(L("Show Log"), #selector(openLog)))
+        menu.addItem(item(L("Quit Cast Mirror"), #selector(quit), key: "q"))
     }
 
     private var statusText: String {
         let name = sessionDevice?.name ?? ""
         switch phase {
-        case .connecting?: return "Connexion à \(name)…"
-        case .launching?: return "Ouverture de la recopie sur \(name)…"
-        case .negotiating?: return "Négociation avec \(name)…"
+        case .connecting?: return L("Connecting to %@…", name)
+        case .launching?: return L("Starting mirroring on %@…", name)
+        case .negotiating?: return L("Negotiating with %@…", name)
         case .streaming?:
-            return defaults.bool(forKey: "extend") ? "Écran étendu sur \(name)" : "Diffusion sur \(name)"
+            return defaults.bool(forKey: "extend") ? L("Extending to %@", name) : L("Casting to %@", name)
         case .ended?, nil:
             if let d = resumeDevice {
-                return asleep ? "En pause (veille) : reprise sur \(d.name) au réveil" : "Reprise de la diffusion sur \(d.name)…"
+                return asleep ? L("Paused (sleep): resumes on %@ at wake", d.name) : L("Resuming cast to %@…", d.name)
             }
-            if let e = lastError { return "Erreur : \(e)" }
-            return devices.isEmpty ? "Aucun appareil Cast trouvé" : "Inactif"
+            if let e = lastError { return L("Error: %@", e) }
+            return devices.isEmpty ? L("No Cast device found") : L("Idle")
         }
     }
 
@@ -270,7 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 try SMAppService.mainApp.register()
             }
         } catch {
-            alert("Impossible de modifier l'ouverture à la connexion : \(error.localizedDescription)")
+            alert(L("Could not change Open at Login: %@", error.localizedDescription))
         }
     }
 
@@ -290,7 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func displayName(_ id: CGDirectDisplayID) -> String {
         if let s = NSScreen.screens.first(where: { $0.displayID == id }) { return s.localizedName }
-        return CGDisplayIsBuiltin(id) != 0 ? "Écran intégré" : "Écran \(id)"
+        return CGDisplayIsBuiltin(id) != 0 ? L("Built-in Display") : L("Display %ld", Int(id))
     }
 
     private var currentDisplayID: CGDirectDisplayID {
@@ -309,7 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         session = nil
         guard CGPreflightScreenCaptureAccess() else {
             CGRequestScreenCaptureAccess()
-            alert("Cast Mirror a besoin de l'autorisation « Enregistrement de l'écran et audio système ».\n\nActive-la dans Réglages Système › Confidentialité et sécurité, puis relance l'app.")
+            alert(L("Cast Mirror needs the “Screen & System Audio Recording” permission.\n\nTurn it on in System Settings › Privacy & Security, then relaunch the app."))
             return
         }
         var options = MirrorOptions()
@@ -341,7 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .failure(let error):
                 log("optimize for HD stream failed: \(error.localizedDescription)")
                 self.displayMode.restore()
-                self.alert("Écran virtuel 16:9 indisponible : \(error.localizedDescription).\n\nLa diffusion continue avec la recopie de l'écran du Mac tel quel.")
+                self.alert(L("16:9 virtual display unavailable: %@.\n\nCasting goes on, mirroring the Mac display as it is.", error.localizedDescription))
                 guard self.startToken == token else { return }
             }
             self.launch(device, options)

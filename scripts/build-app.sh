@@ -20,6 +20,13 @@ cat > "$contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>fr</string>
+	</array>
 	<key>CFBundleIdentifier</key>
 	<string>com.github.castmirror.app</string>
 	<key>CFBundleName</key>
@@ -39,7 +46,7 @@ cat > "$contents/Info.plist" <<EOF
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Cast Mirror cherche les appareils Cast du réseau local et leur envoie l'image de l'écran.</string>
+	<string>Cast Mirror looks for Cast devices on the local network and sends them the picture of your screen.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_googlecast._tcp</string>
@@ -47,6 +54,9 @@ cat > "$contents/Info.plist" <<EOF
 </dict>
 </plist>
 EOF
+
+# Translations (English is the text in the code, French in fr.lproj).
+cp -R Resources/*.lproj "$contents/Resources/"
 
 codesign --force --sign - --identifier com.github.castmirror.app "$app"
 codesign --verify --strict "$app"

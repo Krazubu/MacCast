@@ -114,9 +114,9 @@ final class CastChannel {
                 self.onReady?()
                 self.readFrame()
             case .waiting(let error):
-                self.close(reason: "Appareil injoignable (\(error.localizedDescription))")
+                self.close(reason: L("Device unreachable (%@)", error.localizedDescription))
             case .failed(let error):
-                self.close(reason: "Connexion perdue (\(error.localizedDescription))")
+                self.close(reason: L("Connection lost (%@)", error.localizedDescription))
             default:
                 break
             }
@@ -160,16 +160,16 @@ final class CastChannel {
         connection.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] data, _, _, error in
             guard let self, !self.closed else { return }
             guard let data, data.count == 4, error == nil else {
-                self.close(reason: "Connexion fermée par l'appareil")
+                self.close(reason: L("Connection closed by the device"))
                 return
             }
             let b = [UInt8](data)
             let length = Int(readBE32(b, 0))
-            guard length > 0, length < 1 << 20 else { self.close(reason: "Message invalide"); return }
+            guard length > 0, length < 1 << 20 else { self.close(reason: L("Invalid message")); return }
             self.connection.receive(minimumIncompleteLength: length, maximumLength: length) { data, _, _, error in
                 guard !self.closed else { return }
                 guard let data, data.count == length, error == nil else {
-                    self.close(reason: "Connexion fermée par l'appareil")
+                    self.close(reason: L("Connection closed by the device"))
                     return
                 }
                 if let message = CastMessage.decode(data) { self.dispatch(message) }
@@ -274,4 +274,11 @@ func log(_ message: String) {
         FileHandle.standardError.write(Data(line.utf8))
         logHandle?.write(Data(line.utf8))
     }
+}
+
+/// Localized UI string. Keys are the English text; translations live in
+/// Resources/<language>.lproj/Localizable.strings (French for now).
+func L(_ key: String, _ args: CVarArg...) -> String {
+    let format = Bundle.main.localizedString(forKey: key, value: key, table: nil)
+    return args.isEmpty ? format : String(format: format, arguments: args)
 }
