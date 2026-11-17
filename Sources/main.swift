@@ -1,7 +1,7 @@
 // Cast Mirror: mirror the Mac screen (and sound) to a Cast device, without Chrome.
 //
 //   Cast Mirror.app                    menu bar app
-//   CastMirror --cast "<name>" [...]   command line, for testing:
+//   CastMirror --cast "<name>|<IP>" [...]   command line, for testing:
 //       --pattern      send a test pattern instead of the screen
 //       --no-audio     video only
 //       --720          720p instead of 1080p
@@ -10,6 +10,7 @@
 //       --list         just list the devices found
 
 import AppKit
+import Network
 
 enum CLI {
     static var session: MirrorSession?
@@ -29,14 +30,7 @@ enum CLI {
         if let d = value("--delay").flatMap(Int.init) { options.targetDelayMs = d }
         let seconds = value("--seconds").flatMap(Double.init) ?? 30
 
-        browser.onChange = { devices in
-            if listOnly {
-                for d in devices { print("\(d.name)\t\(d.model)\t\(d.id)") }
-                return
-            }
-            guard session == nil,
-                  let device = devices.first(where: { name.isEmpty || $0.name.localizedCaseInsensitiveContains(name) })
-            else { return }
+        func cast(_ device: CastDevice) {
             let s = MirrorSession(device: device, options: options)
             s.onPhase = { phase in
                 log("phase: \(phase)")
@@ -45,6 +39,23 @@ enum CLI {
             session = s
             s.start()
             DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { s.stop() }
+        }
+        // An IP address skips discovery (for networks where mDNS doesn't get through).
+        if !listOnly, let host = CastDevice.normalizedHost(name),
+           IPv4Address(host) != nil || IPv6Address(host) != nil {
+            cast(.manual(host: host))
+            dispatchMain()
+        }
+
+        browser.onChange = { devices in
+            if listOnly {
+                for d in devices { print("\(d.name)\t\(d.model)\t\(d.id)") }
+                return
+            }
+            guard session == nil,
+                  let device = devices.first(where: { name.isEmpty || $0.name.localizedCaseInsensitiveContains(name) })
+            else { return }
+            cast(device)
         }
         browser.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + (listOnly ? 3 : 10)) {

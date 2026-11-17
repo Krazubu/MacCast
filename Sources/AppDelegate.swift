@@ -96,15 +96,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
 
         menu.addItem(disabled(L("Cast to")))
-        if devices.isEmpty {
+        let found = Set(devices.map(\.name))
+        let listed = devices + manualDevices.filter { !found.contains($0.name) }
+        if listed.isEmpty {
             menu.addItem(disabled(L("  Searching for devices…")))
         }
-        for d in devices {
+        for d in listed {
             let i = item(d.name, #selector(castTo(_:)))
             i.representedObject = d
             i.state = (session != nil && sessionDevice?.id == d.id) ? .on : .off
-            if !d.model.isEmpty { i.toolTip = d.model }
+            if let host = d.manualHost {
+                i.toolTip = d.model.isEmpty ? host : "\(d.model) – \(host)"
+            } else if !d.model.isEmpty {
+                i.toolTip = d.model
+            }
             menu.addItem(i)
+        }
+        let byIP = item(L("IP Address…"), #selector(castToAddress))
+        byIP.toolTip = L("Cast to a device by its IP address, when it doesn't show up in the list.")
+        menu.addItem(byIP)
+        if !manualDevices.isEmpty {
+            menu.addItem(item(L("Forget IP Addresses"), #selector(forgetAddresses)))
         }
         menu.addItem(.separator())
 
@@ -214,6 +226,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if isCasting, sessionDevice?.id == device.id { stopCasting(); return }
         resumeDevice = nil
         start(device)
+    }
+
+    /// Devices typed in by IP address, remembered for the next time.
+    private var manualDevices: [CastDevice] {
+        (defaults.array(forKey: "manualDevices") as? [[String: String]] ?? []).compactMap { e in
+            guard let host = e["host"] else { return nil }
+            return .manual(host: host, name: e["name"], model: e["model"] ?? "")
+        }
+    }
+
+    private func remember(_ d: CastDevice) {
+        guard let host = d.manualHost else { return }
+        var list = (defaults.array(forKey: "manualDevices") as? [[String: String]] ?? []).filter { $0["host"] != host }
+        list.insert(["host": host, "name": d.name, "model": d.model], at: 0)
+        defaults.set(Array(list.prefix(5)), forKey: "manualDevices")
+    }
+
+    @objc private func castToAddress() {
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.messageText = L("Cast to an IP Address")
+        a.informativeText = L("Type the IP address of the Chromecast or TV. You can find it in the Google Home app, in the device's settings, or in your router's list of devices.")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "192.168.1.20"
+        field.stringValue = manualDevices.first?.manualHost ?? ""
+        a.accessoryView = field
+        a.addButton(withTitle: L("Cast"))
+        a.addButton(withTitle: L("Cancel"))
+        a.window.initialFirstResponder = field
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        guard let host = CastDevice.normalizedHost(field.stringValue) else {
+            alert(L("“%@” is not a valid IP address.", field.stringValue))
+            return
+        }
+        // Keep the name already known for this address until the device tells its own.
+        let known = manualDevices.first { $0.manualHost == host }
+        let device = known ?? .manual(host: host)
+        remember(device)
+        resumeDevice = nil
+        start(device)
+        CastDevice.lookUpName(host: host) { [weak self] name, model in
+            guard let self, let name else { return }
+            let named = CastDevice.manual(host: host, name: name, model: model ?? device.model)
+            log("\(host) is \(name) (\(model ?? "?"))")
+            self.remember(named)
+            if self.sessionDevice?.id == named.id { self.sessionDevice = named }
+            if self.resumeDevice?.id == named.id { self.resumeDevice = named }
+        }
+    }
+
+    @objc private func forgetAddresses() {
+        defaults.removeObject(forKey: "manualDevices")
     }
 
     @objc private func stopCasting() {

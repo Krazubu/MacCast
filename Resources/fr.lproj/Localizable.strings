@@ -59,3 +59,13 @@
 "Screen capture failed: %@" = "Capture d'écran impossible : %@";
 "display %ld not found" = "écran %ld introuvable";
 "Cast Mirror — test pattern  %@  #%ld" = "Cast Mirror — mire de test  %@  #%ld";
+
+/* Cast to by IP address */
+"IP Address…" = "Adresse IP…";
+"Cast to a device by its IP address, when it doesn't show up in the list." = "Diffuser sur un appareil par son adresse IP, quand il n’apparaît pas dans la liste.";
+"Forget IP Addresses" = "Oublier les adresses IP";
+"Cast to an IP Address" = "Diffuser sur une adresse IP";
+"Type the IP address of the Chromecast or TV. You can find it in the Google Home app, in the device's settings, or in your router's list of devices." = "Saisissez l’adresse IP du Chromecast ou du téléviseur. Elle figure dans l’app Google Home, dans les réglages de l’appareil ou dans la liste des appareils de votre box.";
+"Cast" = "Diffuser";
+"Cancel" = "Annuler";
+"“%@” is not a valid IP address." = "« %@ » n’est pas une adresse IP valide.";

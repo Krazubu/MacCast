@@ -39,7 +39,16 @@ permission again.
 ## Use
 
 Click the TV icon in the menu bar, then click a device to start mirroring. Click it
-again, or choose *Stop Casting*, to stop. The menu also lets you pick:
+again, or choose *Stop Casting*, to stop.
+
+If a device doesn't show up, for example on a network that blocks mDNS (guest Wi-Fi,
+some mesh routers, VLANs), choose *Cast to › IP Address…* and type its address. You can
+find it in the Google Home app or in your router's list of devices. The app asks the
+device for its name, and remembers the last five addresses in the *Cast to* list.
+*Forget IP Addresses* clears them. Use a fixed address (a DHCP reservation on the
+router), or the remembered entry may point to the wrong device later.
+
+The menu also lets you pick:
 
 - **Mode**: *Mirror Display* shows a Mac display on the TV. *Extended Display* turns the
   TV into a second screen instead. The app creates a 1920x1080 HiDPI virtual display
@@ -87,6 +96,7 @@ The same binary can be used for testing:
 
 | Option | Effect |
 | --- | --- |
+| `--cast <name or IP>` | casts to the first device whose name contains the text, or straight to an IP address without discovery |
 | `--pattern` | sends a test pattern and a beep instead of the screen (needs no permission) |
 | `--no-audio` | video only |
 | `--720` | 720p instead of 1080p |

@@ -197,6 +197,42 @@ struct CastDevice: Hashable {
     let name: String
     let model: String
     let endpoint: NWEndpoint
+
+    /// A device typed in by hand, for networks where mDNS doesn't get through.
+    static func manual(host: String, name: String? = nil, model: String = "") -> CastDevice {
+        CastDevice(id: "ip:\(host)", name: name ?? host, model: model,
+                   endpoint: .hostPort(host: NWEndpoint.Host(host), port: 8009))
+    }
+
+    var manualHost: String? { id.hasPrefix("ip:") ? String(id.dropFirst(3)) : nil }
+
+    /// Accepts an IPv4/IPv6 address or a host name, optionally with ":8009".
+    static func normalizedHost(_ text: String) -> String? {
+        var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("["), let end = s.firstIndex(of: "]") { s = String(s[s.index(after: s.startIndex)..<end]) }
+        else if s.filter({ $0 == ":" }).count == 1, let colon = s.firstIndex(of: ":") { s = String(s[..<colon]) }
+        guard !s.isEmpty, !s.contains(where: { $0.isWhitespace || $0 == "/" }) else { return nil }
+        if IPv4Address(s) != nil || IPv6Address(s) != nil { return s }
+        // Host name: letters, digits, dots and dashes only.
+        return s.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" }) ? s : nil
+    }
+
+    /// Asks the device for its name (Google's local setup API on port 8008).
+    /// Calls back with nil if the device doesn't answer within 3 s.
+    static func lookUpName(host: String, completion: @escaping (String?, String?) -> Void) {
+        let h = host.contains(":") ? "[\(host)]" : host
+        guard let url = URL(string: "http://\(h):8008/setup/eureka_info?params=name,device_info") else {
+            return completion(nil, nil)
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+            let name = (json?["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let model = (json?["device_info"] as? [String: Any])?["model_name"] as? String
+            DispatchQueue.main.async { completion(name, model) }
+        }.resume()
+    }
 }
 
 /// Browses `_googlecast._tcp` and reports devices able to show video.
