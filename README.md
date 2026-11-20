@@ -1,4 +1,4 @@
-# Cast Mirror
+# MacCast
 
 A macOS menu bar app that mirrors the screen and system sound to a Chromecast or a
 TV with Cast built in, the way Chrome's "Cast screen" does, without Chrome.
